@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import { GameMode, GameStatus } from './types';
 import MainMenu from './components/MainMenu';
 import GameCanvas from './components/GameCanvas';
@@ -55,6 +56,7 @@ const App: React.FC = () => {
 
   return (
     <div className="relative w-full h-screen bg-slate-950 overflow-hidden font-sans">
+      <Analytics />
       {/* Global Persistent Camera Layer */}
       <video 
         ref={videoRef} 
