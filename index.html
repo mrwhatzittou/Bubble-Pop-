@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bubble Pop: Finger Frenzy</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background-color: #000;
+        user-select: none;
+      }
+      canvas {
+        touch-action: none;
+      }
+
+      /* Custom animations */
+      @keyframes float {
+        0%, 100% { transform: translateY(0px); }
+        50% { transform: translateY(-10px); }
+      }
+
+      @keyframes bounce-short {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.05); }
+      }
+
+      @keyframes shimmer {
+        0% { background-position: -200% center; }
+        100% { background-position: 200% center; }
+      }
+
+      @keyframes glow-pulse {
+        0%, 100% { box-shadow: 0 0 20px rgba(103, 232, 249, 0.3); }
+        50% { box-shadow: 0 0 40px rgba(103, 232, 249, 0.6); }
+      }
+
+      @keyframes rotate-slow {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+
+      .animate-float {
+        animation: float 3s ease-in-out infinite;
+      }
+
+      .animate-bounce-short {
+        animation: bounce-short 0.5s ease-in-out;
+      }
+
+      .animate-shimmer {
+        background-size: 200% auto;
+        animation: shimmer 3s linear infinite;
+      }
+
+      .animate-glow {
+        animation: glow-pulse 2s ease-in-out infinite;
+      }
+
+      .animate-rotate-slow {
+        animation: rotate-slow 20s linear infinite;
+      }
+
+      /* Smooth transitions */
+      * {
+        transition: background-color 0.3s ease, border-color 0.3s ease, transform 0.3s ease;
+      }
+
+      /* Scale utilities */
+      .hover\:scale-102:hover {
+        transform: scale(1.02);
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+    "react/jsx-runtime": "https://esm.sh/react@18.2.0/jsx-runtime",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "react/": "https://esm.sh/react@^19.2.3/"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>

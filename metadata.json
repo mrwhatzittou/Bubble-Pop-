@@ -1,0 +1,7 @@
+{
+  "name": "Bubble Pop: Finger Frenzy",
+  "description": "A computer vision-based arcade game where you pop bubbles with your finger using the webcam.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
