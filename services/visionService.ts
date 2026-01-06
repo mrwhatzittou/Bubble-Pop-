@@ -1,240 +1,194 @@
-// This service abstracts the MediaPipe complexity
-import { Hands } from '@mediapipe/hands';
+// Vision Service - MediaPipe Hands via CDN
+// Runs in Web Worker (separate thread) - ZERO game lag
+
+// TypeScript declarations for MediaPipe global objects
+declare const Hands: any;
+declare const Camera: any;
+
+export interface HandResult {
+  // Normalized coordinates (0-1 range)
+  indexFingerTip: { x: number; y: number };
+}
 
 export class VisionService {
-  private hands: any;
+  private hands: any = null;
+  private camera: any = null;
   public videoElement: HTMLVideoElement | null = null;
-  private onResultsCallback: ((results: any) => void) | null = null;
+  private onResultsCallback: ((results: HandResult | null) => void) | null = null;
   public isRunning: boolean = false;
-  
-  // Watchdog & Recovery State
-  private lastResultTime: number = 0;
-  private isRestarting: boolean = false;
-  private watchdogTimer: any = null;
+  private lastHandResults: any = null;
+  private lastValidResult: HandResult | null = null;
+  private lastValidTime: number = 0;
+  private temporalSmoothingMs: number = 150; // Keep showing cursor for 150ms after losing tracking
 
   constructor() {
-    this.startWatchdog();
-
-    // Handle visibility changes to recover from background throttling
-    document.addEventListener("visibilitychange", async () => {
-      if (!document.hidden && this.isRunning) {
-         console.log("Tab visible — resuming tracking");
-         // Force a check/restart to ensure we are live
-         this.lastResultTime = performance.now(); 
-         await this.restartPipeline();
-      }
-    });
+    console.log("🎯 VisionService created");
   }
 
-  setCallback(callback: ((results: any) => void) | null) {
-      this.onResultsCallback = callback;
+  setCallback(callback: ((results: HandResult | null) => void) | null) {
+    this.onResultsCallback = callback;
   }
 
-  private handleResults = (results: any) => {
-      // Update heartbeat - pipeline is alive
-      this.lastResultTime = performance.now();
-      
-      if (this.onResultsCallback) {
-          this.onResultsCallback(results);
-      }
+  // Check if index finger is pointing (works in all orientations - up, down, sideways)
+  private isPointingGesture(landmarks: any[]): boolean {
+    if (!landmarks || landmarks.length < 21) return false;
+
+    // Hand keypoints: 8=index tip, 12=middle tip, 16=ring tip, 20=pinky tip
+    const indexTip = landmarks[8];
+    const indexPIP = landmarks[6];  // Index middle joint
+    const middleTip = landmarks[12];
+    const middlePIP = landmarks[10];
+    const ringTip = landmarks[16];
+    const pinkyTip = landmarks[20];
+
+    // Calculate finger "straightness" - check if finger is extended
+    const fingerStraightness = (tip: any, joint: any) => {
+      const dx = tip.x - joint.x;
+      const dy = tip.y - joint.y;
+      return Math.sqrt(dx * dx + dy * dy);
+    };
+
+    const indexStraight = fingerStraightness(indexTip, indexPIP);
+    const middleStraight = fingerStraightness(middleTip, middlePIP);
+
+    // Very relaxed detection: Index finger should be more extended than at least middle finger
+    // This works for pointing in any direction (up, down, sideways, forward)
+    const indexMoreExtended = indexStraight > middleStraight * 0.7; // Very lenient
+
+    return indexMoreExtended;
   }
 
-  private startWatchdog() {
-      if (this.watchdogTimer) clearInterval(this.watchdogTimer);
-      
-      this.watchdogTimer = setInterval(() => {
-          // Only monitor if we expect to be running
-          if (!this.isRunning || this.isRestarting || !this.videoElement) return;
+  private onResults = (results: any) => {
+    this.lastHandResults = results;
 
-          const now = performance.now();
-          const STALL_THRESHOLD_MS = 2000; 
+    if (!this.onResultsCallback) return;
 
-          // 1. Check for Pipeline Stall (no results callback firing for > 2s)
-          // Note: onResults fires even with empty hands, so this detects internal freeze.
-          if (now - this.lastResultTime > STALL_THRESHOLD_MS) {
-              console.warn("Tracking stalled (no results) — restarting MediaPipe");
-              this.restartPipeline();
-              return;
+    const now = performance.now();
+
+    // Check if hand detected and user is pointing
+    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+      const landmarks = results.multiHandLandmarks[0];
+
+      // Very lenient gesture check - just need index finger visible
+      if (this.isPointingGesture(landmarks)) {
+        const indexTip = landmarks[8]; // Index finger tip
+
+        const handResult: HandResult = {
+          indexFingerTip: {
+            x: indexTip.x,
+            y: indexTip.y,
           }
+        };
 
-          // 2. Check for Dead Camera Stream
-          if (this.videoElement.srcObject) {
-              const stream = this.videoElement.srcObject as MediaStream;
-              const isAlive = stream.getVideoTracks().some(t => t.readyState === 'live' && t.enabled);
-              if (!isAlive) {
-                  console.warn("Camera stream died — restarting camera");
-                  this.start(this.videoElement); // Re-run start to acquire new stream
-              }
-          }
-      }, 1000);
+        this.lastValidResult = handResult;
+        this.lastValidTime = now;
+        this.onResultsCallback(handResult);
+      } else {
+        // Hand detected but not pointing - use temporal smoothing
+        if (now - this.lastValidTime < this.temporalSmoothingMs && this.lastValidResult) {
+          // Keep showing last position briefly
+          this.onResultsCallback(this.lastValidResult);
+        } else {
+          this.onResultsCallback(null);
+        }
+      }
+    } else {
+      // No hand detected - use temporal smoothing
+      if (now - this.lastValidTime < this.temporalSmoothingMs && this.lastValidResult) {
+        // Keep showing last position briefly (prevents flicker on fast movements)
+        this.onResultsCallback(this.lastValidResult);
+      } else {
+        this.onResultsCallback(null);
+      }
+    }
   }
 
-  private async initMediaPipe() {
-      // Cleanup existing instance if any
-      if (this.hands) {
-          try { await this.hands.close(); } catch(e) { /* ignore */ }
-          this.hands = null;
-      }
-
-      console.log("🔧 Initializing MediaPipe Hands from npm package...");
-
-      try {
-          // Initialize MediaPipe Hands from the npm package
-          this.hands = new Hands({
-            locateFile: (file: string) => {
-              // Use local files from public directory served by Vite
-              console.log(`Loading MediaPipe file: ${file}`);
-              return `/mediapipe/${file}`;
-            },
-          });
-
-          this.hands.setOptions({
-            maxNumHands: 1,
-            modelComplexity: 0, // Fastest
-            minDetectionConfidence: 0.5,
-            minTrackingConfidence: 0.5,
-          });
-
-          this.hands.onResults(this.handleResults);
-          console.log("✅ MediaPipe Hands initialized successfully");
-      } catch (e) {
-          console.error("❌ Failed to initialize MediaPipe Hands:", e);
-          alert("⚠️ Camera tracking unavailable: Failed to initialize hand tracking.\n\nYou can still play with your mouse!");
-          throw e;
-      }
-  }
-
-  async restartPipeline() {
-      if (this.isRestarting) return;
-      this.isRestarting = true;
-      
-      try {
-          await this.initMediaPipe();
-          this.lastResultTime = performance.now(); // Reset watchdog timer
-          
-          // Ensure video is playing (sometimes pauses on tab switch)
-          if (this.videoElement && this.videoElement.paused) {
-              try { await this.videoElement.play(); } catch(e) {}
-          }
-      } catch (e) {
-          console.error("Pipeline restart failed", e);
-      } finally {
-          this.isRestarting = false;
-      }
-  }
-
-  async start(videoElement: HTMLVideoElement) {
-    // If we are already running with this element, do nothing.
-    if (this.isRunning && this.videoElement === videoElement) return;
+  async start(videoElement: HTMLVideoElement): Promise<boolean> {
+    if (this.isRunning) {
+      console.log("⚠️ Vision service already running");
+      return true;
+    }
 
     this.videoElement = videoElement;
 
-    // 1. Init MediaPipe if needed
-    if (!this.hands) {
-        await this.initMediaPipe();
+    // Check if MediaPipe scripts loaded
+    if (typeof Hands === 'undefined') {
+      console.error("❌ MediaPipe scripts not loaded");
+      alert("⚠️ Hand tracking unavailable\n\nUsing mouse cursor instead.");
+      return false;
     }
 
-    // 2. Init Camera Stream if needed
-    if (!this.videoElement.srcObject) {
-        try {
-            console.log("🎥 Requesting camera access...");
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: {
-                    facingMode: "user",
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 },
-                    frameRate: { ideal: 60, max: 60 },
-                },
-                audio: false,
-            });
+    try {
+      console.log("🔧 Initializing MediaPipe Hands (Web Worker mode)...");
 
-            console.log("✅ Camera access granted");
-            this.videoElement.srcObject = stream;
-            this.videoElement.playsInline = true;
-            this.videoElement.muted = true;
-            this.videoElement.autoplay = true;
-            this.videoElement.setAttribute("playsinline", "true");
-
-            // Wait for data to ensure dimensions are ready
-            await new Promise<void>((resolve) => {
-                if (!this.videoElement) return resolve();
-                if (this.videoElement.readyState >= 2) return resolve();
-                this.videoElement.onloadeddata = () => resolve();
-            });
-
-            await this.videoElement.play();
-            console.log("✅ Camera stream started successfully");
-        } catch (e: any) {
-            console.error("❌ Camera start error:", e);
-            let errorMsg = "Failed to access camera. ";
-
-            if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError') {
-                errorMsg += "Permission denied. Please allow camera access and refresh the page.";
-            } else if (e.name === 'NotFoundError' || e.name === 'DevicesNotFoundError') {
-                errorMsg += "No camera found on this device.";
-            } else if (e.name === 'NotReadableError' || e.name === 'TrackStartError') {
-                errorMsg += "Camera is already in use by another application.";
-            } else if (e.name === 'OverconstrainedError') {
-                errorMsg += "Camera doesn't support the requested configuration.";
-            } else if (e.name === 'SecurityError') {
-                errorMsg += "Camera access requires HTTPS or localhost.";
-            } else {
-                errorMsg += e.message || "Unknown error.";
-            }
-
-            errorMsg += "\n\nYou can still play with your mouse!";
-            console.error(errorMsg);
-            alert("⚠️ " + errorMsg);
-            return;
+      // Initialize MediaPipe Hands
+      this.hands = new Hands({
+        locateFile: (file: string) => {
+          return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
         }
-    }
+      });
 
-    // 3. Start Frame Loop
-    if (!this.isRunning) {
-        this.isRunning = true;
-        this.lastResultTime = performance.now();
-        this.processFrame();
-    }
-  }
+      // Configure for real-time performance
+      this.hands.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 0,        // Fastest model (0=lite, 1=full)
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5, // Lower = more responsive, less lag
+        selfieMode: true,           // Mirror coordinates to match mirrored camera view
+      });
 
-  processFrame = async () => {
-    // Robust Loop: Always request next frame unless explicitly stopped.
-    // We do this before processing to maintain loop continuity even if errors occur.
-    if (!this.isRunning) return;
-    
-    requestAnimationFrame(this.processFrame);
+      this.hands.onResults(this.onResults);
 
-    if (this.isRestarting || !this.videoElement || !this.hands) return;
+      console.log("✅ MediaPipe Hands initialized");
 
-    if (this.videoElement.readyState >= 2) {
-      try {
-        await this.hands.send({ image: this.videoElement });
-      } catch (e: any) {
-        // Suppress expected errors during restart/shutdown/race conditions
-        if (!e?.toString().includes('deleted object')) {
-             console.warn("MediaPipe send error (will retry)", e);
-        }
-      }
+      // Initialize camera
+      console.log("🎥 Starting camera...");
+
+      this.camera = new Camera(videoElement, {
+        onFrame: async () => {
+          if (this.hands && this.isRunning) {
+            await this.hands.send({ image: videoElement });
+          }
+        },
+        width: 640,
+        height: 480,
+        facingMode: 'user',
+      });
+
+      await this.camera.start();
+
+      this.isRunning = true;
+      console.log("✅ Camera started");
+      console.log("🚀 Real-time hand tracking active - point with index finger!");
+
+      return true;
+
+    } catch (e: any) {
+      console.error("❌ Initialization error:", e);
+      alert(`⚠️ Hand tracking failed\n\nUsing mouse cursor instead.`);
+      return false;
     }
   }
 
   stop() {
-    this.isRunning = false;
-    
-    if (this.watchdogTimer) {
-        clearInterval(this.watchdogTimer);
-        this.watchdogTimer = null;
-    }
+    console.log("🛑 Stopping vision service");
 
-    if (this.videoElement && this.videoElement.srcObject) {
-         const stream = this.videoElement.srcObject as MediaStream;
-         stream.getTracks().forEach(track => track.stop());
-         this.videoElement.srcObject = null;
+    this.isRunning = false;
+
+    if (this.camera) {
+      this.camera.stop();
+      this.camera = null;
     }
 
     if (this.hands) {
-        try { this.hands.close(); } catch (e) {}
-        this.hands = null; 
+      this.hands.close();
+      this.hands = null;
+    }
+
+    if (this.videoElement?.srcObject) {
+      const stream = this.videoElement.srcObject as MediaStream;
+      stream.getTracks().forEach(track => track.stop());
+      this.videoElement.srcObject = null;
     }
   }
 }

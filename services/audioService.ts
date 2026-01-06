@@ -103,20 +103,19 @@ class AudioService {
   }
 
   pauseMusic() {
-      // "Duck" to 0 but stay there
-      if (!this.musicMasterGain || !this.ctx || this.isMusicMuted) return;
-      const t = this.ctx.currentTime;
-      this.musicMasterGain.gain.cancelScheduledValues(t);
-      this.musicMasterGain.gain.setValueAtTime(this.musicMasterGain.gain.value, t);
-      this.musicMasterGain.gain.linearRampToValueAtTime(0, t + 0.1);
+      // Actually pause the audio element (preserves playback position)
+      if (this.musicElement && !this.musicElement.paused) {
+          this.musicElement.pause();
+      }
   }
 
   resumeMusic() {
-      if (!this.musicMasterGain || !this.ctx || this.isMusicMuted) return;
-      const t = this.ctx.currentTime;
-      this.musicMasterGain.gain.cancelScheduledValues(t);
-      this.musicMasterGain.gain.setValueAtTime(this.musicMasterGain.gain.value, t);
-      this.musicMasterGain.gain.linearRampToValueAtTime(0.35, t + 0.1);
+      // Resume playback from where it was paused
+      if (this.musicElement && this.musicElement.paused) {
+          this.musicElement.play().catch(e => {
+              console.warn("Resume music failed:", e);
+          });
+      }
   }
 
   toggleMusic() {

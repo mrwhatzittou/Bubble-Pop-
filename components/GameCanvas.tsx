@@ -81,8 +81,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ mode, initialLevel = 1, onGameO
   // Single Source of Truth for Logic Dimensions (CSS Pixels)
   const stageDimensions = useRef({ width: 0, height: 0 });
 
-  // Adaptive Filter
-  const oneEuroFilter = useRef(new OneEuroFilter({ minCutoff: 1.6, beta: 0.06, dCutoff: 1.0 }));
+  // Minimal smoothing for instant response
+  const smoothedPos = useRef({ x: -100, y: -100 });
+  const smoothingFactor = 0.7; // Higher = more responsive (0.7 = minimal lag)
 
   // Helper to determine starting score based on level
   const getStartingScore = (lvlIndex: number) => {
@@ -186,7 +187,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ mode, initialLevel = 1, onGameO
     const vw = video.videoWidth;
     const vh = video.videoHeight;
 
-    const xN = CAMERA_MIRRORED ? 1 - normX : normX;
+    // MediaPipe selfieMode already handles mirroring, use coordinates directly
+    const xN = normX;
     const yN = normY;
 
     // Video pixel coordinates
@@ -195,7 +197,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ mode, initialLevel = 1, onGameO
 
     // Map video pixels to stage pixels using cover logic
     const { drawW, offsetX, offsetY } = getCoverRect(vw, vh, stageW, stageH);
-    const scale = drawW / vw; 
+    const scale = drawW / vw;
 
     return {
         x: offsetX + xV * scale,
@@ -218,7 +220,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ mode, initialLevel = 1, onGameO
     }
     const dx = newPos.x - state.lastStablePos.x;
     const dy = newPos.y - state.lastStablePos.y;
-    if (Math.hypot(dx, dy) < 2.0) return state.lastStablePos;
+    // Reduced deadzone from 2.0 to 0.5 for more responsive tracking
+    if (Math.hypot(dx, dy) < 0.5) return state.lastStablePos;
 
     state.lastStablePos = newPos;
     return newPos;
@@ -301,8 +304,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ mode, initialLevel = 1, onGameO
     if (width === 0 || height === 0) return;
 
     const currentLevel = LEVELS[Math.min(gameState.current.levelIndex, LEVELS.length - 1)];
-    const difficultyMult = mode === GameMode.INFINITE 
-      ? 1 + (gameState.current.score / 2000) 
+    // Infinite mode: Aggressive difficulty scaling based on score
+    const difficultyMult = mode === GameMode.INFINITE
+      ? 1 + (gameState.current.score / 1000) // Faster scaling (was 2000)
       : 1;
 
     const baseRadius = width * 0.04; 
@@ -313,7 +317,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ mode, initialLevel = 1, onGameO
     
     let bombChance = currentLevel.bombChance;
     if (mode === GameMode.INFINITE) {
-      bombChance = Math.min(0.35, 0.05 + (gameState.current.score / 8000));
+      // More aggressive bomb scaling in infinite mode
+      bombChance = Math.min(0.40, 0.08 + (gameState.current.score / 3000)); // Faster increase
     }
     
     if (rand < bombChance) type = BubbleType.BOMB;
@@ -587,40 +592,56 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ mode, initialLevel = 1, onGameO
 
   useEffect(() => {
     const onHandResults = (results: any) => {
+      // Don't update cursor when game is paused
+      if (isPaused) return;
+
       const now = performance.now();
-      
-      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+
+      // TensorFlow.js format: { indexFingerTip: {x, y} } (normalized 0-1) or null
+      if (results && results.indexFingerTip) {
         if (!cameraActive) setCameraActive(true);
         gameState.current.inputType = 'CAMERA';
         gameState.current.lastHandTime = now;
-        
-        const landmarks = results.multiHandLandmarks[0];
-        const tip = landmarks[8]; 
-        const dip = landmarks[7];
-        const normX = tip.x * 0.85 + dip.x * 0.15;
-        const normY = tip.y * 0.85 + dip.y * 0.15;
-        
+
+        // Results are already normalized (0-1 range)
+        const normX = results.indexFingerTip.x;
+        const normY = results.indexFingerTip.y;
+
         const mapped = mapLandmarkToStage(normX, normY);
-        
+
         if (mapped) {
-            const clamped = clampToStage(mapped, stageDimensions.current.width, stageDimensions.current.height, 4);
-            const filtered = oneEuroFilter.current.update(clamped.x, clamped.y);
-            const stable = applyDeadzone(filtered);
-            gameState.current.fingerPos = stable;
+          const clamped = clampToStage(mapped, stageDimensions.current.width, stageDimensions.current.height, 4);
+
+          // Simple exponential smoothing for instant response
+          if (smoothedPos.current.x === -100) {
+            // First frame - use position directly
+            smoothedPos.current = clamped;
+          } else {
+            // Smooth transition
+            smoothedPos.current.x += (clamped.x - smoothedPos.current.x) * smoothingFactor;
+            smoothedPos.current.y += (clamped.y - smoothedPos.current.y) * smoothingFactor;
+          }
+
+          gameState.current.fingerPos = smoothedPos.current;
         }
-      } 
+      }
     };
 
     // Register callback with persistent Vision Service
     visionService.setCallback(onHandResults);
 
     const handleMouseMove = (e: MouseEvent) => {
+      // Don't update cursor when game is paused
+      if (isPaused) return;
+
       const wrapper = wrapperRef.current;
       if (!wrapper) return;
-      
+
       const now = performance.now();
-      
-      if (now - gameState.current.lastHandTime > 500) {
+
+      // Use mouse if no hand detected recently (or never detected)
+      // Reduced timeout from 500ms to 200ms for faster fallback
+      if (now - gameState.current.lastHandTime > 200 || gameState.current.lastHandTime === 0) {
           gameState.current.inputType = 'MOUSE';
           const rect = wrapper.getBoundingClientRect();
           gameState.current.fingerPos = {
@@ -647,7 +668,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ mode, initialLevel = 1, onGameO
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
       visionService.setCallback(null);
     };
-  }, [mode, onGameOver, visionService]);
+  }, [mode, onGameOver, visionService, isPaused]); // Add isPaused to dependencies
 
   return (
     <div ref={wrapperRef} className="absolute inset-0 z-10 cursor-none touch-none">

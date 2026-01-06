@@ -52,7 +52,7 @@ const MainMenu: React.FC<MainMenuProps> = ({ onStart, onStartCamera, isCameraRun
         }
     } catch (e) {
         console.error("Failed to start camera", e);
-        // Game will automatically fall back to mouse cursor
+        alert("⚠️ Camera failed to start. Using mouse cursor instead.");
     }
 
     // Give audio context time to unlock and camera to init
@@ -187,47 +187,47 @@ const MainMenu: React.FC<MainMenuProps> = ({ onStart, onStartCamera, isCameraRun
           </div>
         </div>
 
-      <div className="z-10 flex flex-col items-center gap-4">
-        {selectedMode === GameMode.LEVELS ? (
-          <>
-            {hasCheckpoint && (
+        <div className="z-10 flex flex-col items-center gap-4">
+          {selectedMode === GameMode.LEVELS ? (
+            <>
+              {hasCheckpoint && (
+                <button
+                  onClick={handleContinue}
+                  disabled={loading}
+                  className="w-64 py-4 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 rounded-full text-xl font-bold shadow-lg transform transition-transform active:scale-95"
+                >
+                  {loading ? 'Starting...' : `CONTINUE (LEVEL ${continueLevel})`}
+                </button>
+              )}
+
               <button
-                onClick={handleContinue}
+                onClick={handleNewGameRequest}
                 disabled={loading}
-                className="w-64 py-4 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 rounded-full text-xl font-bold shadow-lg transform transition-transform active:scale-95"
+                className={`w-64 py-3 rounded-full font-bold shadow-lg transform transition-transform active:scale-95 border-2 ${
+                  hasCheckpoint
+                   ? 'bg-slate-800 border-slate-600 text-slate-300 hover:bg-slate-700'
+                   : 'bg-gradient-to-r from-cyan-500 to-blue-600 border-transparent hover:from-cyan-400 hover:to-blue-500 text-white text-xl py-4'
+                }`}
               >
-                {loading ? 'Starting...' : `CONTINUE (LEVEL ${continueLevel})`}
+                {loading ? 'Starting...' : (hasCheckpoint ? 'RESTART (LVL 1)' : 'START GAME')}
               </button>
-            )}
-            
+
+              {hasCheckpoint && (
+                 <p className="text-xs text-slate-500 font-mono">
+                    Resume from highest unlocked level ({continueLevel})
+                 </p>
+              )}
+            </>
+          ) : (
             <button
-              onClick={handleNewGameRequest}
+              onClick={handleInfiniteStart}
               disabled={loading}
-              className={`w-64 py-3 rounded-full font-bold shadow-lg transform transition-transform active:scale-95 border-2 ${
-                hasCheckpoint
-                 ? 'bg-slate-800 border-slate-600 text-slate-300 hover:bg-slate-700' 
-                 : 'bg-gradient-to-r from-cyan-500 to-blue-600 border-transparent hover:from-cyan-400 hover:to-blue-500 text-white text-xl py-4'
-              }`}
+              className="w-64 py-4 bg-gradient-to-r from-purple-500 to-pink-600 hover:from-purple-400 hover:to-pink-500 rounded-full text-xl font-bold shadow-lg transform transition-transform active:scale-95"
             >
-              {loading ? 'Starting...' : (hasCheckpoint ? 'RESTART (LVL 1)' : 'START GAME')}
+              {loading ? 'Starting...' : 'START INFINITE'}
             </button>
-            
-            {hasCheckpoint && (
-               <p className="text-xs text-slate-500 font-mono">
-                  Resume from highest unlocked level ({continueLevel})
-               </p>
-            )}
-          </>
-        ) : (
-          <button
-            onClick={handleInfiniteStart}
-            disabled={loading}
-            className="w-64 py-4 bg-gradient-to-r from-purple-500 to-pink-600 hover:from-purple-400 hover:to-pink-500 rounded-full text-xl font-bold shadow-lg transform transition-transform active:scale-95"
-          >
-            {loading ? 'Starting...' : 'START INFINITE'}
-          </button>
-        )}
-      </div>
+          )}
+        </div>
 
         {/* Enhanced How to Play section */}
         <div className="max-w-lg text-center mt-6 z-10 bg-gradient-to-br from-slate-800/70 to-slate-900/70 p-5 sm:p-6 rounded-2xl backdrop-blur-md border border-slate-700/50 shadow-xl">
@@ -278,13 +278,13 @@ const MainMenu: React.FC<MainMenuProps> = ({ onStart, onStartCamera, isCameraRun
                This will clear your progress. You are currently at <strong>Level {continueLevel}</strong>.
              </p>
              <div className="flex gap-4 justify-center">
-               <button 
+               <button
                  onClick={() => setShowConfirmRestart(false)}
                  className="px-6 py-2 rounded-full bg-slate-700 hover:bg-slate-600 font-bold"
                >
                  Cancel
                </button>
-               <button 
+               <button
                  onClick={confirmRestart}
                  className="px-6 py-2 rounded-full bg-red-600 hover:bg-red-500 font-bold shadow-lg"
                >

@@ -30,11 +30,40 @@ export const SCORING = {
   [BubbleType.HEART]: 0,
 };
 
-export const LEVELS = [
-  { target: 150, speedMod: 1.0, spawnMod: 1.0, bombChance: 0.1 },
-  { target: 400, speedMod: 1.2, spawnMod: 0.9, bombChance: 0.15 },
-  { target: 800, speedMod: 1.4, spawnMod: 0.8, bombChance: 0.2 },
-  { target: 1500, speedMod: 1.7, spawnMod: 0.7, bombChance: 0.25 },
-  { target: 3000, speedMod: 2.0, spawnMod: 0.6, bombChance: 0.3 },
-  { target: 999999, speedMod: 2.5, spawnMod: 0.5, bombChance: 0.35 }, 
-];
+// Generate 100 levels with smooth difficulty progression
+const generateLevels = () => {
+  const levels = [];
+
+  for (let i = 1; i <= 100; i++) {
+    // Score targets - exponential growth
+    let target;
+    if (i === 1) target = 150;
+    else if (i === 2) target = 350;
+    else if (i === 3) target = 600;
+    else if (i === 4) target = 900;
+    else if (i === 5) target = 1250;
+    else if (i <= 20) target = 1250 + (i - 5) * 200;  // Levels 6-20: +200 each
+    else if (i <= 50) target = 4250 + (i - 20) * 300; // Levels 21-50: +300 each
+    else target = 13250 + (i - 50) * 400;             // Levels 51-100: +400 each
+
+    // Speed multiplier - gradual increase (1.0 → 2.5 over 100 levels)
+    const speedMod = 1.0 + (i - 1) * 0.015;
+
+    // Spawn rate - gradual increase (1.0 → 0.5, lower = more spawns)
+    const spawnMod = Math.max(0.5, 1.0 - (i - 1) * 0.005);
+
+    // Bomb chance - gradual increase (5% → 30%)
+    const bombChance = Math.min(0.30, 0.05 + (i - 1) * 0.0025);
+
+    levels.push({
+      target,
+      speedMod: Math.round(speedMod * 100) / 100,
+      spawnMod: Math.round(spawnMod * 100) / 100,
+      bombChance: Math.round(bombChance * 1000) / 1000,
+    });
+  }
+
+  return levels;
+};
+
+export const LEVELS = generateLevels();
