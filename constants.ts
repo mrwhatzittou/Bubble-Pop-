@@ -30,30 +30,45 @@ export const SCORING = {
   [BubbleType.HEART]: 0,
 };
 
-// Generate 100 levels with smooth difficulty progression
+// Generate 20 challenging levels with significant score requirements
 const generateLevels = () => {
   const levels = [];
 
-  for (let i = 1; i <= 100; i++) {
-    // Score targets - exponential growth
-    let target;
-    if (i === 1) target = 150;
-    else if (i === 2) target = 350;
-    else if (i === 3) target = 600;
-    else if (i === 4) target = 900;
-    else if (i === 5) target = 1250;
-    else if (i <= 20) target = 1250 + (i - 5) * 200;  // Levels 6-20: +200 each
-    else if (i <= 50) target = 4250 + (i - 20) * 300; // Levels 21-50: +300 each
-    else target = 13250 + (i - 50) * 400;             // Levels 51-100: +400 each
+  // Score targets - each level is a real achievement
+  const scoreTargets = [
+    150,     // Level 1: Tutorial
+    500,     // Level 2: Getting started
+    1200,    // Level 3
+    2200,    // Level 4
+    3500,    // Level 5
+    5200,    // Level 6
+    7500,    // Level 7
+    10500,   // Level 8
+    14000,   // Level 9
+    18500,   // Level 10: Halfway milestone
+    24000,   // Level 11
+    30500,   // Level 12
+    38000,   // Level 13
+    47000,   // Level 14
+    57500,   // Level 15
+    69500,   // Level 16
+    83000,   // Level 17
+    98500,   // Level 18
+    116000,  // Level 19
+    150000,  // Level 20: Final boss level
+  ];
 
-    // Speed multiplier - gradual increase (1.0 → 2.5 over 100 levels)
-    const speedMod = 1.0 + (i - 1) * 0.015;
+  for (let i = 1; i <= 20; i++) {
+    const target = scoreTargets[i - 1];
 
-    // Spawn rate - gradual increase (1.0 → 0.5, lower = more spawns)
-    const spawnMod = Math.max(0.5, 1.0 - (i - 1) * 0.005);
+    // Speed multiplier - meaningful progression (1.0 → 2.5)
+    const speedMod = 1.0 + (i - 1) * 0.075;
 
-    // Bomb chance - gradual increase (5% → 30%)
-    const bombChance = Math.min(0.30, 0.05 + (i - 1) * 0.0025);
+    // Spawn rate - steady increase (1.0 → 0.5, lower = more spawns)
+    const spawnMod = Math.max(0.5, 1.0 - (i - 1) * 0.025);
+
+    // Bomb chance - balanced scaling (5% → 30%)
+    const bombChance = Math.min(0.30, 0.05 + (i - 1) * 0.0125);
 
     levels.push({
       target,
