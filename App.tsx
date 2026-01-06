@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import { GameMode, GameStatus } from './types';
 import MainMenu from './components/MainMenu';
 import GameCanvas from './components/GameCanvas';
@@ -55,6 +56,9 @@ const App: React.FC = () => {
 
   return (
     <div className="relative w-full h-screen bg-slate-950 overflow-hidden font-sans">
+      {/* Vercel Speed Insights */}
+      <SpeedInsights />
+
       {/* Global Persistent Camera Layer */}
       <video 
         ref={videoRef} 
