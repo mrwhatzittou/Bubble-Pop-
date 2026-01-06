@@ -4,6 +4,7 @@ import MainMenu from './components/MainMenu';
 import GameCanvas from './components/GameCanvas';
 import GameOver from './components/GameOver';
 import { VisionService } from './services/visionService';
+import { Analytics } from '@vercel/analytics/react';
 
 const App: React.FC = () => {
   const [status, setStatus] = useState<GameStatus>(GameStatus.MENU);
@@ -89,6 +90,8 @@ const App: React.FC = () => {
           />
         </>
       )}
+
+      <Analytics />
     </div>
   );
 };
